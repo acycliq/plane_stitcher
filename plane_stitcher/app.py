@@ -57,7 +57,7 @@ def intersection_over_union(masks_true, masks_pred, adj=None):
     # adjust
     if adj is not None:
         mask = overlap.row == 0
-        overlap.data[mask] = overlap.data[mask] - adj
+        overlap.data[mask] = overlap.data[mask] - adj[np.nonzero(mask)]
 
     n_pixels_pred = overlap.sum(axis=0)
     n_pixels_true = overlap.sum(axis=1)
@@ -154,7 +154,8 @@ def intersection_over_union_wrapper(lst, stitch_threshold):
     # 1: stack
     cur = np.vstack([lst[0], lst[1]])
     pred = np.vstack([lst[2], lst[2]])
-    adj = fastremap.unique(lst[2].ravel(), return_counts=True)[1]
+    # adj = fastremap.unique(lst[2].ravel(), return_counts=True)[1]
+    adj = np.bincount(lst[2].flatten(), minlength=lst[2].shape[1])
     iou = intersection_over_union(cur, pred, adj)
 
     # split the stacked iou to two separates ones.
@@ -282,7 +283,7 @@ def maximum_iou(lst):
 def stitch3D(masks, stitch_threshold=0.25):
     """ stitch 2D masks into 3D volume with stitch_threshold on IOU """
     mmax = masks[0].max()
-    mapped_to_labels = None
+    reserved = None
 
     # add a dummy zero-plane at the very end
     dummy = 0 * masks[0]
@@ -291,7 +292,7 @@ def stitch3D(masks, stitch_threshold=0.25):
     for i in range(len(masks) - 2):
         print('stitching plane %d to %d and %d ' % (i, i+1, i+2))
         iou, planes_concat = intersection_over_union_wrapper([masks[i + 2], masks[i + 1], masks[i]], stitch_threshold)
-        masks[i+2], masks[i+1], mapped_to_labels = _stitch_coo(iou, planes_concat, stitch_threshold, mmax, mapped_to_labels)
+        masks[i+2], masks[i+1], reserved = _stitch_coo(iou, planes_concat, stitch_threshold, mmax, reserved)
 
 
     # drop the last plane when you return, it is the dummy plane added
