@@ -56,6 +56,7 @@ def intersection_over_union(masks_true, masks_pred, adj=None):
 
     # adjust
     if adj is not None:
+        # Needs further checking
         mask = overlap.row == 0
         overlap.data[mask] = overlap.data[mask] - adj[np.nonzero(mask)]
 
