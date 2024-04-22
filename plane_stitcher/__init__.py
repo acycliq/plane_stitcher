@@ -1,1 +1,1 @@
-from .main import stitch3D_coo
+from .main import stitch3D

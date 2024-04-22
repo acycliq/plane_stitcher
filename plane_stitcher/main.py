@@ -279,7 +279,7 @@ def maximum_iou(lst):
     return cur.tocoo()
 
 
-def stitch3D_coo(masks, stitch_threshold=0.25):
+def stitch3D(masks, stitch_threshold=0.25):
     """ stitch 2D masks into 3D volume with stitch_threshold on IOU """
     mmax = masks[0].max()
     mapped_to_labels = None
@@ -441,7 +441,7 @@ if __name__ == "__main__":
     # KEEP 4949 and it doesnt stitch
     # WHY???
     # masks = masks[37:40, 1100:1400, 1400:1700]
-    out = stitch3D_coo(masks[35:41, 1100:1400, 1400:1700], 0.2)
+    out = stitch3D(masks[35:41, 1100:1400, 1400:1700], 0.2)
     # # out = skimage.color.label2rgb(out, bg_label=0)
     np.save('/home/dimitris/data/Max/case_1349/out_testing.npy', out)
     print('=========================================')
