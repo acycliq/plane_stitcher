@@ -291,11 +291,7 @@ def stitch3D(masks, stitch_threshold=0.25):
     for i in range(len(masks) - 2):
         print('stitching plane %d to %d and %d ' % (i, i+1, i+2))
         iou, planes_concat = intersection_over_union_wrapper([masks[i + 2], masks[i + 1], masks[i]], stitch_threshold)
-        print(iou.toarray())
         masks[i+2], masks[i+1], mapped_to_labels = _stitch_coo(iou, planes_concat, stitch_threshold, mmax, mapped_to_labels)
-        print(masks)
-        print('====================================')
-
 
 
     # drop the last plane when you return, it is the dummy plane added
@@ -310,7 +306,6 @@ def remove_label_zero(upper, lower):
 
 
 def _remove_label_zero(iou_coo):
-    # remove now first column and first row from the coo matrix. These entries correspond to label=0
     # remove now first column and first row from the coo matrix. These entries correspond to label=0
     is_coord_zero = iou_coo.row * iou_coo.col
     row = iou_coo.row[is_coord_zero != 0] - 1
@@ -359,90 +354,3 @@ def _keep_max(coo):
         coo_data[mask] = 0
         out = coo_matrix((coo_data, (coo.row, coo.col)), shape=coo.shape)
     return out
-
-
-
-
-if __name__ == "__main__":
-
-    ones = [
-        [1, 1, 1, 0, 0, 0, 0],
-        [1, 1, 1, 0, 0, 0, 0],
-        [1, 1, 1, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0]
-    ]
-
-    twos = [
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 2, 2, 2, 0, 0, 0],
-        [0, 2, 2, 2, 2, 0, 0],
-        [0, 0, 2, 2, 2, 0, 0],
-        [0, 0, 2, 2, 2, 2, 0],
-        [0, 0, 0, 0, 2, 2, 0],
-        [0, 0, 0, 0, 0, 0, 0]
-    ]
-
-    threes = [
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 3, 3, 3],
-        [0, 0, 0, 0, 3, 3, 3],
-        [0, 0, 0, 0, 3, 3, 3]
-    ]
-
-    blank = [
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0]
-    ]
-
-    sixs_and_threes = [
-        [6, 6, 6, 0, 0, 0, 0],
-        [6, 6, 6, 0, 0, 0, 0],
-        [6, 6, 6, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 3, 3, 3],
-        [0, 0, 0, 0, 3, 3, 3],
-        [0, 0, 0, 0, 3, 3, 3]
-    ]
-    masks = np.stack([ones, blank, twos, threes])
-
-    dummy = np.zeros(masks[0].shape)
-    my_dummy = 0 * masks[0]
-    # masks = np.concatenate((masks, np.array(blank)[None,:,:]))
-    # masks = np.concatenate((masks, my_dummy[None, :, :]))
-    # out = stitch3D_coo(masks, stitch_threshold=0.19)
-
-    zmin = 10
-    zmax = 15
-    ymin = 30 + 13
-    ymax = 70
-    xmin = 10 + 10
-    xmax = 50
-
-    masks = np.stack([ones, blank, twos, threes], 0.14)
-    # masks = np.stack([ones, threes, sixs_and_threes])
-    # out = stitch3D_coo(masks, 0.2)
-
-    masks = io.imread('/home/dimitris/data/Max/BZ004_s22_exvivo_0g_cp_masks.tif')
-    # # np.save('/home/dimitris/data/Max/masks_roi.npy', masks[37:52, 1100:1400, 1400:1700])
-    masks = fastremap.mask_except(masks,[4115, 4356, 4547, 4548, 4756, 4758, 5134, 4949, 5137])  # , 5137, 5301, 5482, 5692])
-    #
-    # REMOVE 4949 and it stitches
-    # KEEP 4949 and it doesnt stitch
-    # WHY???
-    # masks = masks[37:40, 1100:1400, 1400:1700]
-    out = stitch3D(masks[35:41, 1100:1400, 1400:1700], 0.2)
-    # # out = skimage.color.label2rgb(out, bg_label=0)
-    np.save('/home/dimitris/data/Max/case_1349/out_testing.npy', out)
-    print('=========================================')
-    print(out)
