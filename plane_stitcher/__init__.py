@@ -1,1 +1,1 @@
-from .main import stitch3D
+from .app import stitch3D
