@@ -5,3 +5,4 @@
 build/
 *.egg-info
 /run_me.py
+/plane_stitcher/__pycache__
