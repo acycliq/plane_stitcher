@@ -1,17 +1,12 @@
-from scipy.ndimage import generate_binary_structure
 from numba import jit
-import pandas as pd
 import numpy as np
-from skimage import morphology
 from skimage import io
-from skimage.measure import regionprops_table
 import fastremap
-from scipy import ndimage
-import diplib as dip
 from scipy.sparse import coo_matrix, csr_matrix, csc_matrix
 
 
 def intersection_over_union_dense(masks_true, masks_pred):
+    """ THE ORIGINAL FUNCTION, TAKEN FROM CELLPOSE, WORKS WITH DENSE ARRAYS"""
     """ intersection over union of all mask pairs
 
     Parameters
@@ -39,7 +34,8 @@ def intersection_over_union_dense(masks_true, masks_pred):
 
 
 def intersection_over_union(masks_true, masks_pred, adj=None):
-    """ intersection over union of all mask pairs
+    """ intersection over union of all mask pairs.
+    Taken for cellpose and edited to work with sparse arrays (coo)
 
     Parameters
     ------------
@@ -63,9 +59,6 @@ def intersection_over_union(masks_true, masks_pred, adj=None):
         mask = overlap.row == 0
         overlap.data[mask] = overlap.data[mask] - adj
 
-
-    # print('x.max is %d' % masks_true.max())
-    # print('y.max is %d' % masks_pred.max())
     n_pixels_pred = overlap.sum(axis=0)
     n_pixels_true = overlap.sum(axis=1)
 
@@ -150,26 +143,62 @@ def _stitch(iou, mask, stitch_threshold, mmax):
 
 
 def intersection_over_union_wrapper(lst, stitch_threshold):
+    """
+    You have 3 planes (0,1,2) and you want to get the iou between planes
+    (0 and 2) and (0 and 1)
+    Stack plane 0 to itself
+    Stack plane 2 ontop plane 1
+    Do the typical IoU for the two stacked planes
+    """
+
+    # 1: stack
     cur = np.vstack([lst[0], lst[1]])
     pred = np.vstack([lst[2], lst[2]])
     adj = fastremap.unique(lst[2].ravel(), return_counts=True)[1]
     iou = intersection_over_union(cur, pred, adj)
 
+    # split the stacked iou to two separates ones.
+    # one for each plane
     upper, lower = split_iou(iou, coo_matrix(lst[0]))
+
+    # remove the iou entries for label=0
     upper, lower = remove_label_zero(upper, lower)
 
+    # overwrite the entries in upper (plane 1) with the
+    # column-size (nonzero) minimum from lower (plane 0)
+    # This is done to make sure that a cell that appears in
+    # plane 0 and there is a cell that overlaps with it on plane 1
+    # but fails the threshold criterion (hence will not merge) then
+    # if on plane 2 there is also another overlapping cell then that
+    # cell will not merge (no matter what the overlap is)
     upper = map_min(upper, lower)
+
+    # apply now the threshold
     upper, lower = apply_threshold(upper, lower, stitch_threshold)
 
+    # For each plane keep only the max
     upper = _keep_max(upper)
     lower = _keep_max(lower)
-
 
     out = upper.maximum(lower).tocoo()
     return out, cur
 
 
 def min_col(b):
+    """
+    reads sparse array b and returns the column ids and the corresponding min
+    Example:
+        b = coo_matrix([
+            [2, 0, 2],
+            [0, 0, 1],
+            [5, 0, 0],
+            [0, 0, 0],
+        ])
+
+        col_id, col_min = min_col(b)
+        col_id = [0, 2]
+        col_min = [2, 1]
+    """
     b = b.tocsc()
     indptr = b.tocsc().indptr
     indices = b.tocsc().indices
@@ -188,6 +217,31 @@ def min_col(b):
 
 
 def map_min(a, b):
+    """
+    replaces the entries in a with the column-wise (non-zero) min of a and b
+    Example:
+        a = coo_matrix([
+            [0, 12, 3],
+            [3, 0, 0],
+            [0, 0, 1],
+            [4, 5, 6],
+        ])
+
+        b = coo_matrix([
+            [2, 0, 2],
+            [0, 0, 1],
+            [5, 0, 0],
+            [0, 0, 0],
+        ])
+
+        c = map_min(a, b)
+        c = [
+            [0, 12, 1],
+            [2, 0, 0],
+            [0, 0, 1],
+            [2, 5, 1],
+]
+    """
     col_id, col_min = min_col(b)
     for i, v in enumerate(col_id):
         mask = a.col == v
@@ -272,23 +326,12 @@ def _stitch_coo(iou_coo, mask, stitch_threshold, mmax, reserved_labels=None):
     m = int(m / 2)
 
     if iou_coo.data.size > 0:
-
-        # iou_coo = _keep_max(iou_coo)
-        print('Relabelling (old, new)')
-        print(*[d for d in zip( iou_coo.row+1, iou_coo.col+1)], sep='\n')
-        # iou = iou_coo.toarray()
-        # iou[iou < iou.max(axis=0)] = 0.0
-        # iou_coo = coo_matrix(iou, shape=iou_coo.shape)
-
         istitch = iou_coo.argmax(axis=1) + 1
         istitch = np.asarray(istitch).flatten()
         max_axis1 = iou_coo.max(axis=1)
         max_axis1_arr = max_axis1.toarray()
         ino = np.nonzero(max_axis1_arr == 0.0)[0]
-        # ino = np.setdiff1d(ino, reserved_labels)
 
-        print('Shifting labels: ')
-        print(*ino.tolist(), sep='\t')
         istitch[ino] = np.arange(mmax+1, mmax+len(ino)+1, 1, int)
         mmax += len(ino)
         istitch = np.append(np.array(0), istitch)
