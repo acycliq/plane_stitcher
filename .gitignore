@@ -1,0 +1,7 @@
+.idea/*
+*.jpg
+*.tif
+*.tiff
+build/
+*.egg-info
+/run_me.py
