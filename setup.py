@@ -1,7 +1,7 @@
 import os
 from setuptools import setup, find_packages
 
-install_deps = ['scipy', 'numba', 'numpy', 'scikit-image', 'fastremap']
+install_deps = ['scipy', 'numba', 'numpy', 'scikit-image', 'fastremap', 'requests', 'pytest']
 
 version = None
 with open(os.path.join('plane_stitcher', '_version.py'), 'r') as fid:
