@@ -49,5 +49,3 @@ def test_intersection_over_union(filename, request):
     np.allclose(iou.tocsr()[4758, 4356], 0.45595854922279794)
 
 
-    assert 1==1
-
