@@ -33,7 +33,7 @@ def intersection_over_union_dense(masks_true, masks_pred):
     return iou
 
 
-def intersection_over_union(masks_true, masks_pred, adj=None):
+def intersection_over_union(masks_true, masks_pred, cell_area=None):
     """ intersection over union of all mask pairs.
     Taken for cellpose and edited to work with sparse arrays (coo)
 
@@ -55,10 +55,11 @@ def intersection_over_union(masks_true, masks_pred, adj=None):
     overlap = _label_overlap2(masks_true, masks_pred)
 
     # adjust
-    if adj is not None:
-        # Needs further checking
+    if cell_area is not None:
         mask = overlap.row == 0
-        overlap.data[mask] = overlap.data[mask] - adj[np.nonzero(mask)]
+        label = overlap.col[mask] # labels of the cell that were on the background on the previous plane
+        area_adj = cell_area[label] # this is the area of those cells
+        overlap.data[mask] = overlap.data[mask] - area_adj
 
     n_pixels_pred = overlap.sum(axis=0)
     n_pixels_true = overlap.sum(axis=1)
@@ -100,7 +101,6 @@ def _label_overlap(x, y):
     return overlap
 
 
-# @jit(nopython=True)
 def _label_overlap2(x, y):
     """ fast function to get pixel overlaps between masks in x and y
 
@@ -155,9 +155,8 @@ def intersection_over_union_wrapper(lst, stitch_threshold):
     # 1: stack
     cur = np.vstack([lst[0], lst[1]])
     pred = np.vstack([lst[2], lst[2]])
-    # adj = fastremap.unique(lst[2].ravel(), return_counts=True)[1]
-    adj = np.bincount(lst[2].flatten(), minlength=lst[2].shape[1])
-    iou = intersection_over_union(cur, pred, adj)
+    cell_area = np.bincount(lst[2].flatten(), minlength=lst[2].shape[1])
+    iou = intersection_over_union(cur, pred, cell_area)
 
     # split the stacked iou to two separates ones.
     # one for each plane
