@@ -290,7 +290,7 @@ def stitch3D(masks, stitch_threshold=0.25):
     masks = np.concatenate((masks, dummy[None, :, :]))
 
     for i in range(len(masks) - 2):
-        print('stitching plane %d to %d and %d ' % (i, i+1, i+2))
+        # print('stitching plane %d to %d and %d ' % (i, i+1, i+2))
         iou, planes_concat = intersection_over_union_wrapper([masks[i + 2], masks[i + 1], masks[i]], stitch_threshold)
         masks[i+2], masks[i+1], reserved = _stitch_coo(iou, planes_concat, stitch_threshold, mmax, reserved)
 
