@@ -1,1 +1,1 @@
-from .app import stitch3D
+from .app import stitch3D, intersection_over_union
