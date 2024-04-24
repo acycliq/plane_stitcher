@@ -1,8 +1,9 @@
 from numba import jit
 import numpy as np
-from skimage import io
-import fastremap
+import fill_voids
 from scipy.sparse import coo_matrix, csr_matrix, csc_matrix
+from scipy.ndimage import find_objects
+from tqdm import tqdm
 
 
 def intersection_over_union_dense(masks_true, masks_pred):
@@ -289,10 +290,10 @@ def stitch3D(masks, stitch_threshold=0.25):
     dummy = 0 * masks[0]
     masks = np.concatenate((masks, dummy[None, :, :]))
 
-    for i in range(len(masks) - 2):
+    for i in tqdm(range(len(masks) - 2)):
         # print('stitching plane %d to %d and %d ' % (i, i+1, i+2))
         iou, planes_concat = intersection_over_union_wrapper([masks[i + 2], masks[i + 1], masks[i]], stitch_threshold)
-        masks[i+2], masks[i+1], reserved = _stitch_coo(iou, planes_concat, stitch_threshold, mmax, reserved)
+        masks[i+2], masks[i+1], reserved = _stitch_coo(iou, planes_concat, mmax, reserved)
 
 
     # drop the last plane when you return, it is the dummy plane added
@@ -316,10 +317,11 @@ def _remove_label_zero(iou_coo):
     return coo_matrix((data, (row, col)), shape=(m - 1, n - 1))
 
 
-def _stitch_coo(iou_coo, mask, stitch_threshold, mmax, reserved_labels=None):
+def _stitch_coo(iou_coo, mask, mmax, reserved_labels=None):
     out = mask
     m, n = out.shape
     m = int(m / 2)
+    reserved = None
 
     if iou_coo.data.size > 0:
         istitch = iou_coo.argmax(axis=1) + 1
@@ -336,8 +338,9 @@ def _stitch_coo(iou_coo, mask, stitch_threshold, mmax, reserved_labels=None):
             # do not shift those labels
             istitch[reserved_labels] = reserved_labels
         out = istitch[mask]
+        reserved = iou_coo.col + 1
 
-    return out[:m, :], out[m:, :], iou_coo.col+1
+    return out[:m, :], out[m:, :], reserved
 
 
 def _keep_max(coo):
@@ -355,3 +358,58 @@ def _keep_max(coo):
         coo_data[mask] = 0
         out = coo_matrix((coo_data, (coo.row, coo.col)), shape=coo.shape)
     return out
+
+
+def fill_holes_and_remove_small_masks(masks, min_size=15):
+    """ fill holes in masks (2D/3D) and discard masks smaller than min_size (2D)
+
+    fill holes in each mask using scipy.ndimage.morphology.binary_fill_holes
+
+    (might have issues at borders between cells, todo: check and fix)
+
+    Parameters
+    ----------------
+
+    masks: int, 2D or 3D array
+        labelled masks, 0=NO masks; 1,2,...=mask labels,
+        size [Ly x Lx] or [Lz x Ly x Lx]
+
+    min_size: int (optional, default 15)
+        minimum number of pixels per mask, can turn off with -1
+
+    Returns
+    ---------------
+
+    masks: int, 2D or 3D array
+        masks with holes filled and masks smaller than min_size removed,
+        0=NO masks; 1,2,...=mask labels,
+        size [Ly x Lx] or [Lz x Ly x Lx]
+
+    """
+
+    if masks.ndim > 3 or masks.ndim < 2:
+        raise ValueError('masks_to_outlines takes 2D or 3D array, not %dD array' % masks.ndim)
+
+    slices = find_objects(masks)
+    j = 0
+    removed_counts = 0
+    for i, slc in enumerate(slices):
+        if slc is not None:
+            msk = masks[slc] == (i + 1)
+            npix = msk.sum()
+            if msk.shape[0] == 1:
+                masks[slc][msk] = 0  # the object is on one single plane, remove it
+                removed_counts += 1
+            elif min_size > 0 and npix < min_size:
+                masks[slc][msk] = 0
+            elif npix > 0:
+                if msk.ndim == 3:
+                    for k in range(msk.shape[0]):
+                        # msk[k] = binary_fill_holes(msk[k])
+                        msk[k] = fill_voids.fill(msk[k], in_place=False)
+                else:
+                    # msk = binary_fill_holes(msk)
+                    msk = fill_voids.fill(msk, in_place=False)
+                masks[slc][msk] = (j + 1)
+                j += 1
+    return masks

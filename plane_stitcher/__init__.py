@@ -1,1 +1,1 @@
-from .app import stitch3D, intersection_over_union
+from .app import stitch3D, intersection_over_union, fill_holes_and_remove_small_masks
