@@ -143,6 +143,14 @@ def _stitch(iou, mask, stitch_threshold, mmax):
         istitch = np.append(np.array(0), istitch)
         return istitch[mask]
 
+def slice_coo(big_coo, small_coo):
+    data = big_coo.data
+    big_coo_rc = list(zip(big_coo.row, big_coo.col))
+    small_coo_rc = list(zip(small_coo.row, small_coo.col))
+
+    idx = list(map(np.all, np.isin(big_coo_rc, small_coo_rc)))
+    out = coo_matrix((data[idx], (big_coo.row[idx], big_coo.col[idx])), shape=big_coo.shape)
+    return out
 
 def intersection_over_union_wrapper(lst, stitch_threshold):
     """
@@ -158,6 +166,10 @@ def intersection_over_union_wrapper(lst, stitch_threshold):
     pred = np.vstack([lst[2], lst[2]])
     cell_area = np.bincount(lst[2].flatten(), minlength=lst[2].shape[1])
     iou = intersection_over_union(cur, pred, cell_area)
+
+    plane01_pairs, plane02_pairs = get_pairs(*lst)
+    low = slice_coo(iou, plane01_pairs)
+    up = slice_coo(iou, plane02_pairs)
 
     # split the stacked iou to two separates ones.
     # one for each plane
@@ -247,7 +259,9 @@ def map_min(a, b):
     col_id, col_min = min_col(b)
     for i, v in enumerate(col_id):
         mask = a.col == v
-        a.data[mask] = col_min[i]
+        # a.data[mask] = col_min[i]
+        values = np.minimum(a.data[mask], col_min[i])
+        a.data[mask] = values
     return a
 
 
@@ -281,6 +295,17 @@ def maximum_iou(lst):
     return cur.tocoo()
 
 
+def get_pairs(p2, p1, p0):
+    c0 = coo_matrix(p0)
+    c1 = coo_matrix(p1)
+    c2 = coo_matrix(p2)
+    plane02_pairs = _label_overlap2(p2, p0)
+    plane01_pairs = _label_overlap2(p1, p0)
+
+    # plane01_pairs, plane02_pairs = remove_label_zero(plane01_pairs, plane02_pairs)
+    return plane01_pairs, plane02_pairs
+
+
 def stitch3D(masks, stitch_threshold=0.25):
     """ stitch 2D masks into 3D volume with stitch_threshold on IOU """
     mmax = masks[0].max()
@@ -291,8 +316,9 @@ def stitch3D(masks, stitch_threshold=0.25):
     masks = np.concatenate((masks, dummy[None, :, :]))
 
     for i in tqdm(range(len(masks) - 2)):
-        # print('stitching plane %d to %d and %d ' % (i, i+1, i+2))
+        print('stitching plane %d to %d and %d ' % (i, i+1, i+2))
         iou, planes_concat = intersection_over_union_wrapper([masks[i + 2], masks[i + 1], masks[i]], stitch_threshold)
+        print(iou)
         masks[i+2], masks[i+1], reserved = _stitch_coo(iou, planes_concat, mmax, reserved)
 
 
@@ -336,7 +362,12 @@ def _stitch_coo(iou_coo, mask, mmax, reserved_labels=None):
 
         if reserved_labels is not None:
             # do not shift those labels
+            print('reserved: ',  reserved_labels)
+            print('istitch: ',  istitch)
+            istitch = np.pad(istitch, (0, max(0, reserved_labels.max() - len(istitch) + 1)))
+            print('istitch: ', istitch)
             istitch[reserved_labels] = reserved_labels
+            print('istitch: ', istitch)
         out = istitch[mask]
         reserved = iou_coo.col + 1
 
