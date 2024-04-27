@@ -3,8 +3,11 @@ import numpy as np
 import fill_voids
 from scipy.sparse import coo_matrix, csr_matrix, csc_matrix
 from scipy.ndimage import find_objects
-from plane_stitcher.utils import shift_labels
+from plane_stitcher.utils import shift_labels, split_iou, remove_label_zero
 from tqdm import tqdm
+import logging
+
+app_logger = logging.getLogger(__name__)
 
 
 def intersection_over_union_dense(masks_true, masks_pred):
@@ -133,18 +136,6 @@ def _label_overlap2(x, y):
     return overlap
 
 
-def _stitch(iou, mask, stitch_threshold, mmax):
-    if iou.size > 0:
-        iou[iou < stitch_threshold] = 0.0
-        iou[iou < iou.max(axis=0)] = 0.0  # Keeps the max
-        istitch = iou.argmax(axis=1) + 1
-        ino = np.nonzero(iou.max(axis=1) == 0.0)[0]
-        istitch[ino] = np.arange(mmax + 1, mmax + len(ino) + 1, 1, int)
-        mmax += len(ino)
-        istitch = np.append(np.array(0), istitch)
-        return istitch[mask]
-
-
 def intersection_over_union_wrapper(lst, stitch_threshold):
     """
     You have 3 planes (0,1,2) and you want to get the iou between planes
@@ -160,12 +151,9 @@ def intersection_over_union_wrapper(lst, stitch_threshold):
     cell_area = np.bincount(lst[2].flatten(), minlength=lst[2].shape[1])
     iou = intersection_over_union(cur, pred, cell_area)
 
-    # split the stacked iou to two separates ones.
-    # one for each plane
-    # upper, lower = split_iou(iou, coo_matrix(lst[1]))
-
+    # split now the stacked overlap to two separate ones
     p01 = _label_overlap2(lst[1], lst[2])
-    upper, lower = split_iou_2(iou, p01)
+    upper, lower = split_iou(iou, p01)
 
     # remove the iou entries for label=0
     upper, lower = remove_label_zero(upper, lower)
@@ -257,32 +245,6 @@ def map_min(a, b):
     return a
 
 
-def split_iou(iou, coo_p1):
-    m, n = coo_p1.shape
-    p1_labels = np.unique(coo_p1.data)
-    idx = np.isin(iou.row, p1_labels)
-    lower = coo_matrix((iou.data[idx], (iou.row[idx], iou.col[idx])), shape=iou.shape)
-    upper = coo_matrix((iou.data[~idx], (iou.row[~idx], iou.col[~idx])), shape=iou.shape)
-    return upper, lower
-
-
-def split_iou_2(iou, p01):
-    coo = coo_matrix(p01)
-    coords = list(zip(coo.row, coo.col))
-    has_zero = [~np.all(d) for d in coords]
-    coo.data[has_zero] = 0
-    coo.eliminate_zeros()
-
-    iou_rc = list(zip(iou.row, iou.col))
-    coords = list(zip(coo.row, coo.col))
-    idx_1 = np.array([d in set(coords) for d in iou_rc])
-
-    lower = coo_matrix((iou.data[idx_1], (iou.row[idx_1], iou.col[idx_1])), shape=iou.shape)
-    upper = coo_matrix((iou.data[~idx_1], (iou.row[~idx_1], iou.col[~idx_1])), shape=iou.shape)
-
-    # assert set(list(zip(p02.row, p02.col))) == set(list(zip(upper.row, upper.col)))
-    return upper, lower
-
 
 def apply_threshold(upper, lower, stitch_threshold):
     upper = _apply_threshold(upper, stitch_threshold)
@@ -315,34 +277,14 @@ def stitch3D(masks, stitch_threshold=0.25):
     masks = np.concatenate((masks, dummy[None, :, :]))
 
     for i in tqdm(range(len(masks) - 2)):
-        print('stitching plane %d to %d and %d ' % (i, i+1, i+2))
-        print(np.unique(masks[i+2]))
-        # masks[i+2] = np.where(masks[i+2]>0, masks[i+2]+masks[i+1].max(), masks[i+2])
+        # app_logger.info('stitching plane %d to %d and %d ' % (i, i+1, i+2))
         masks[i+1], masks[i+2] = shift_labels(masks[i+1], masks[i+2])
-        print(np.unique(masks[i + 2]))
         iou, planes_concat = intersection_over_union_wrapper([masks[i + 2], masks[i + 1], masks[i]], stitch_threshold)
         masks[i+2], masks[i+1], reserved = _stitch_coo(iou, planes_concat, mmax, reserved)
-
 
     # drop the last plane when you return, it is the dummy plane added
     # at the very beginning
     return masks[:-1].astype(np.uint32)
-
-
-def remove_label_zero(upper, lower):
-    upper = _remove_label_zero(upper)
-    lower = _remove_label_zero(lower)
-    return upper, lower
-
-
-def _remove_label_zero(iou_coo):
-    # remove now first column and first row from the coo matrix. These entries correspond to label=0
-    is_coord_zero = iou_coo.row * iou_coo.col
-    row = iou_coo.row[is_coord_zero != 0] - 1
-    col = iou_coo.col[is_coord_zero != 0] - 1
-    data = iou_coo.data[is_coord_zero != 0]
-    m, n = iou_coo.shape
-    return coo_matrix((data, (row, col)), shape=(m - 1, n - 1))
 
 
 def _stitch_coo(iou_coo, mask, mmax, reserved_labels=None):
