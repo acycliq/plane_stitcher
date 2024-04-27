@@ -168,33 +168,34 @@ def intersection_over_union_wrapper(lst, stitch_threshold):
     iou = intersection_over_union(cur, pred, cell_area)
 
     plane01_pairs, plane02_pairs = get_pairs(*lst)
-    low = slice_coo(iou, plane01_pairs)
-    up = slice_coo(iou, plane02_pairs)
 
-    # split the stacked iou to two separates ones.
-    # one for each plane
-    upper, lower = split_iou(iou, coo_matrix(lst[0]))
+    if (lst[0].max() == 0) or (lst[1].max() == 0):
+        out = _remove_label_zero(iou)
+    else:
+        # split the stacked iou to two separates ones.
+        # one for each plane
+        upper, lower = split_iou(iou, plane01_pairs, plane02_pairs)
 
-    # remove the iou entries for label=0
-    upper, lower = remove_label_zero(upper, lower)
+        # remove the iou entries for label=0
+        upper, lower = remove_label_zero(upper, lower)
 
-    # overwrite the entries in upper (plane 1) with the
-    # column-size (nonzero) minimum from lower (plane 0)
-    # This is done to make sure that a cell that appears in
-    # plane 0 and there is a cell that overlaps with it on plane 1
-    # but fails the threshold criterion (hence will not merge) then
-    # if on plane 2 there is also another overlapping cell then that
-    # cell will not merge (no matter what the overlap is)
-    upper = map_min(upper, lower)
+        # overwrite the entries in upper (plane 1) with the
+        # column-size (nonzero) minimum from lower (plane 0)
+        # This is done to make sure that a cell that appears in
+        # plane 0 and there is a cell that overlaps with it on plane 1
+        # but fails the threshold criterion (hence will not merge) then
+        # if on plane 2 there is also another overlapping cell then that
+        # cell will not merge (no matter what the overlap is)
+        upper = map_min(upper, lower)
 
-    # apply now the threshold
-    upper, lower = apply_threshold(upper, lower, stitch_threshold)
+        # apply now the threshold
+        upper, lower = apply_threshold(upper, lower, stitch_threshold)
 
-    # For each plane keep only the max
-    upper = _keep_max(upper)
-    lower = _keep_max(lower)
+        # For each plane keep only the max
+        upper = _keep_max(upper)
+        lower = _keep_max(lower)
 
-    out = upper.maximum(lower).tocoo()
+        out = upper.maximum(lower).tocoo()
     return out, cur
 
 
@@ -265,12 +266,27 @@ def map_min(a, b):
     return a
 
 
-def split_iou(iou, coo_p2):
-    m, n = coo_p2.shape
-    p2_labels = np.unique(coo_p2.data)
-    idx = np.isin(iou.row, p2_labels)
-    upper = coo_matrix((iou.data[idx], (iou.row[idx], iou.col[idx])), shape=iou.shape)
-    lower = coo_matrix((iou.data[~idx], (iou.row[~idx], iou.col[~idx])), shape=iou.shape)
+# def split_iou(iou, coo_p2):
+#     m, n = coo_p2.shape
+#     p2_labels = np.unique(coo_p2.data)
+#     idx = np.isin(iou.row, p2_labels)
+#     upper = coo_matrix((iou.data[idx], (iou.row[idx], iou.col[idx])), shape=iou.shape)
+#     lower = coo_matrix((iou.data[~idx], (iou.row[~idx], iou.col[~idx])), shape=iou.shape)
+#     return upper, lower
+
+
+def split_iou(iou, p01, p02):
+    non_zero = list(map(np.all, zip(iou.row, iou.col)))
+    # iou = coo_matrix((iou.data[non_zero], (iou.row[non_zero], iou.col[non_zero])), shape=iou.shape)
+
+    iou_rc = list(zip(iou.row, iou.col))
+    p01_rc = list(zip(p01.row, p01.col))
+    idx_1 = np.array([d in set(p01_rc) for d in iou_rc])
+
+    lower = coo_matrix((iou.data[idx_1], (iou.row[idx_1], iou.col[idx_1])), shape=iou.shape)
+    upper = coo_matrix((iou.data[~idx_1], (iou.row[~idx_1], iou.col[~idx_1])), shape=iou.shape)
+
+    # assert set(list(zip(p02.row, p02.col))) == set(list(zip(upper.row, upper.col)))
     return upper, lower
 
 
