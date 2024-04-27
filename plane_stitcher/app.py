@@ -3,6 +3,7 @@ import numpy as np
 import fill_voids
 from scipy.sparse import coo_matrix, csr_matrix, csc_matrix
 from scipy.ndimage import find_objects
+from plane_stitcher.utils import shift_labels
 from tqdm import tqdm
 
 
@@ -161,7 +162,10 @@ def intersection_over_union_wrapper(lst, stitch_threshold):
 
     # split the stacked iou to two separates ones.
     # one for each plane
-    upper, lower = split_iou(iou, coo_matrix(lst[0]))
+    # upper, lower = split_iou(iou, coo_matrix(lst[1]))
+
+    p01 = _label_overlap2(lst[1], lst[2])
+    upper, lower = split_iou_2(iou, p01)
 
     # remove the iou entries for label=0
     upper, lower = remove_label_zero(upper, lower)
@@ -247,16 +251,36 @@ def map_min(a, b):
     col_id, col_min = min_col(b)
     for i, v in enumerate(col_id):
         mask = a.col == v
-        a.data[mask] = col_min[i]
+        # a.data[mask] = col_min[i]
+        values = np.minimum(a.data[mask], col_min[i])
+        a.data[mask] = values
     return a
 
 
-def split_iou(iou, coo_p2):
-    m, n = coo_p2.shape
-    p2_labels = np.unique(coo_p2.data)
-    idx = np.isin(iou.row, p2_labels)
-    upper = coo_matrix((iou.data[idx], (iou.row[idx], iou.col[idx])), shape=iou.shape)
-    lower = coo_matrix((iou.data[~idx], (iou.row[~idx], iou.col[~idx])), shape=iou.shape)
+def split_iou(iou, coo_p1):
+    m, n = coo_p1.shape
+    p1_labels = np.unique(coo_p1.data)
+    idx = np.isin(iou.row, p1_labels)
+    lower = coo_matrix((iou.data[idx], (iou.row[idx], iou.col[idx])), shape=iou.shape)
+    upper = coo_matrix((iou.data[~idx], (iou.row[~idx], iou.col[~idx])), shape=iou.shape)
+    return upper, lower
+
+
+def split_iou_2(iou, p01):
+    coo = coo_matrix(p01)
+    coords = list(zip(coo.row, coo.col))
+    has_zero = [~np.all(d) for d in coords]
+    coo.data[has_zero] = 0
+    coo.eliminate_zeros()
+
+    iou_rc = list(zip(iou.row, iou.col))
+    coords = list(zip(coo.row, coo.col))
+    idx_1 = np.array([d in set(coords) for d in iou_rc])
+
+    lower = coo_matrix((iou.data[idx_1], (iou.row[idx_1], iou.col[idx_1])), shape=iou.shape)
+    upper = coo_matrix((iou.data[~idx_1], (iou.row[~idx_1], iou.col[~idx_1])), shape=iou.shape)
+
+    # assert set(list(zip(p02.row, p02.col))) == set(list(zip(upper.row, upper.col)))
     return upper, lower
 
 
@@ -291,7 +315,11 @@ def stitch3D(masks, stitch_threshold=0.25):
     masks = np.concatenate((masks, dummy[None, :, :]))
 
     for i in tqdm(range(len(masks) - 2)):
-        # print('stitching plane %d to %d and %d ' % (i, i+1, i+2))
+        print('stitching plane %d to %d and %d ' % (i, i+1, i+2))
+        print(np.unique(masks[i+2]))
+        # masks[i+2] = np.where(masks[i+2]>0, masks[i+2]+masks[i+1].max(), masks[i+2])
+        masks[i+1], masks[i+2] = shift_labels(masks[i+1], masks[i+2])
+        print(np.unique(masks[i + 2]))
         iou, planes_concat = intersection_over_union_wrapper([masks[i + 2], masks[i + 1], masks[i]], stitch_threshold)
         masks[i+2], masks[i+1], reserved = _stitch_coo(iou, planes_concat, mmax, reserved)
 
