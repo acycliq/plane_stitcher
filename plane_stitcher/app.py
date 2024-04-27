@@ -1,9 +1,9 @@
 from numba import jit
 import numpy as np
 import fill_voids
-from scipy.sparse import coo_matrix, csr_matrix, csc_matrix
+from scipy.sparse import coo_matrix
 from scipy.ndimage import find_objects
-from plane_stitcher.utils import shift_labels, split_iou, remove_label_zero
+from plane_stitcher.utils import shift_labels, split_iou, remove_label_zero, map_min, apply_threshold
 from tqdm import tqdm
 import logging
 
@@ -176,95 +176,6 @@ def intersection_over_union_wrapper(lst, stitch_threshold):
 
     out = upper.maximum(lower).tocoo()
     return out, cur
-
-
-def min_col(b):
-    """
-    reads sparse array b and returns the column ids and the corresponding min
-    Example:
-        b = coo_matrix([
-            [2, 0, 2],
-            [0, 0, 1],
-            [5, 0, 0],
-            [0, 0, 0],
-        ])
-
-        col_id, col_min = min_col(b)
-        col_id = [0, 2]
-        col_min = [2, 1]
-    """
-    b = b.tocsc()
-    indptr = b.tocsc().indptr
-    indices = b.tocsc().indices
-    b_data = b.tocsc().data
-
-    col_id = []
-    col_min = []
-    for i in range(len(indptr) - 1):
-        k = indptr[i]
-        l = indptr[i + 1]
-        row = b_data[k:l]
-        if len(row) > 0:
-            col_id.append(i)
-            col_min.append(min(row))
-    return col_id, col_min
-
-
-def map_min(a, b):
-    """
-    replaces the entries in a with the column-wise (non-zero) min of a and b
-    Example:
-        a = coo_matrix([
-            [0, 12, 3],
-            [3, 0, 0],
-            [0, 0, 1],
-            [4, 5, 6],
-        ])
-
-        b = coo_matrix([
-            [2, 0, 2],
-            [0, 0, 1],
-            [5, 0, 0],
-            [0, 0, 0],
-        ])
-
-        c = map_min(a, b)
-        c = [
-            [0, 12, 1],
-            [2, 0, 0],
-            [0, 0, 1],
-            [2, 5, 1],
-]
-    """
-    col_id, col_min = min_col(b)
-    for i, v in enumerate(col_id):
-        mask = a.col == v
-        # a.data[mask] = col_min[i]
-        values = np.minimum(a.data[mask], col_min[i])
-        a.data[mask] = values
-    return a
-
-
-
-def apply_threshold(upper, lower, stitch_threshold):
-    upper = _apply_threshold(upper, stitch_threshold)
-    lower = _apply_threshold(lower, stitch_threshold)
-    return upper, lower
-
-def _apply_threshold(iou, stitch_threshold):
-    idx = iou.data >= stitch_threshold
-    iou.data = iou.data[idx]
-    iou.col = iou.col[idx]
-    iou.row = iou.row[idx]
-    return iou
-
-
-def maximum_iou(lst):
-    cur = lst[0].tocsr()
-    for i in range(len(lst)-1):
-        nxt = lst[i+1].tocsr()
-        cur = cur.maximum(nxt)
-    return cur.tocoo()
 
 
 def stitch3D(masks, stitch_threshold=0.25):
