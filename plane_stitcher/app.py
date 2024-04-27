@@ -130,9 +130,9 @@ def _label_overlap2(x, y):
     n_rows = 1 + x.max().astype(np.int32)
     n_cols = 1 + y.max().astype(np.int32)
     overlap = coo_matrix((data, (x, y)), shape = (n_rows, n_cols), dtype=np.int32)
-    # overlap = coo_matrix((1 + x.max().astype(np.int32), 1 + y.max().astype(np.int32)), dtype=np.int32 )
-    # overlap.data[x, y] += 1
-    overlap = overlap.tocsc().tocoo()
+
+    # overlap = overlap.tocsc().tocoo()
+    overlap.sum_duplicates()
     return overlap
 
 
