@@ -5,6 +5,7 @@ from scipy.sparse import coo_matrix
 from scipy.ndimage import find_objects
 from plane_stitcher.utils import shift_labels, split_iou, remove_label_zero, map_min, apply_threshold
 from tqdm import tqdm
+import fastremap
 import logging
 
 app_logger = logging.getLogger(__name__)
@@ -180,6 +181,7 @@ def intersection_over_union_wrapper(lst, stitch_threshold):
 
 def stitch3D(masks, stitch_threshold=0.25):
     """ stitch 2D masks into 3D volume with stitch_threshold on IOU """
+    masks, _ = fastremap.renumber(masks, in_place=False)
     mmax = masks[0].max()
     reserved = None
 
@@ -188,6 +190,8 @@ def stitch3D(masks, stitch_threshold=0.25):
     masks = np.concatenate((masks, dummy[None, :, :]))
 
     for i in tqdm(range(len(masks) - 2)):
+        if i % 2 == 1:
+            reserved = None
         # app_logger.info('stitching plane %d to %d and %d ' % (i, i+1, i+2))
         masks[i+1], masks[i+2] = shift_labels(masks[i+1], masks[i+2])
         iou, planes_concat = intersection_over_union_wrapper([masks[i + 2], masks[i + 1], masks[i]], stitch_threshold)
@@ -216,7 +220,9 @@ def _stitch_coo(iou_coo, mask, mmax, reserved_labels=None):
         istitch = np.append(np.array(0), istitch)
 
         if reserved_labels is not None:
+            # pass
             # do not shift those labels
+            # print(reserved_labels)
             istitch[reserved_labels] = reserved_labels
         out = istitch[mask]
         reserved = iou_coo.col + 1
