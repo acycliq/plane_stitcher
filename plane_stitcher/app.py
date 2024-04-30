@@ -197,7 +197,7 @@ def stitch3D(masks, stitch_threshold=0.25):
         # app_logger.info('stitching plane %d to %d and %d ' % (i, i+1, i+2))
         masks[i+1], masks[i+2] = shift_labels(masks[i+1], masks[i+2])
         iou, planes_concat = intersection_over_union_wrapper([masks[i + 2], masks[i + 1], masks[i]], stitch_threshold)
-        masks[i+2], masks[i+1], reserved = _stitch_coo(iou, planes_concat, mmax, reserved)
+        masks[i+2], masks[i+1], reserved = _stitch_coo_2(iou, planes_concat, mmax, reserved)
 
     # drop the last plane when you return, it is the dummy plane added
     # at the very beginning
@@ -227,6 +227,25 @@ def _stitch_coo(iou_coo, mask, mmax, reserved_labels=None):
         out = istitch[mask]
         reserved = iou_coo.col + 1
 
+    return out[:m, :], out[m:, :], reserved
+
+
+def _stitch_coo_2(iou_coo, mask, mmax, reserved_labels=None):
+    out = mask
+    m, n = out.shape
+    m = int(m / 2)
+    reserved = None
+
+    if iou_coo.data.size > 0:
+        # istitch = np.zeros(int(iou_coo.row.max()) + 2)
+        istitch = np.arange(iou_coo.shape[0]+1)
+        istitch[iou_coo.row + 1] = iou_coo.col + 1
+
+        if reserved_labels is not None:
+            # do not shift those labels
+            istitch[reserved_labels] = reserved_labels
+        out = istitch[mask]
+        reserved = iou_coo.col + 1
     return out[:m, :], out[m:, :], reserved
 
 
